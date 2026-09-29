@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import hashlib
 import secrets
-from collections import Counter
+import re
 
 # =========================================================
 #  SIMULATEUR AVIATOR — ÉDUCATIF
@@ -16,8 +16,7 @@ st.set_page_config(page_title="Aviator Analyzer", page_icon="🛩️", layout="w
 st.title("🛩️ Aviator Analyzer — Éducatif")
 st.error(
     "⚠️ **Aucun algorithme ne peut prédire Aviator.** "
-    "Cette application calcule des probabilités mathématiques. "
-    "Elle ne prédit pas les tours futurs."
+    "Cette application calcule des probabilités. Elle ne prédit pas les tours futurs."
 )
 
 # ---------- MOTEUR ----------
@@ -92,6 +91,7 @@ onglets = st.tabs([
     "🎲 Monte Carlo",
     "📊 Comparaison",
     "📐 Calculateur",
+    "⏳ Simulateur d'attente",
     "📈 Analyse de série",
     "🔐 Provably Fair",
 ])
@@ -201,17 +201,11 @@ with onglets[2]:
                           xaxis_title="Manche", yaxis_title="€")
         st.plotly_chart(fig, use_container_width=True)
 
-# ========== ONGLET 4 : CALCULATEUR DE PROBABILITÉS ==========
+# ========== ONGLET 4 : CALCULATEUR ==========
 with onglets[3]:
     st.header("📐 Calculateur de probabilités")
     st.markdown("""
-    Cette section calcule la **probabilité mathématique exacte** qu'un tour atteigne un multiplicateur donné.
-
-    **Formule officielle** (issue du système provably fair) :
-
-    `P(crash ≥ X) = RTP / X`
-
-    Où **RTP** est le Retour au Joueur (généralement 0.97, soit 97%).
+    **Formule officielle** : `P(crash ≥ X) = RTP / X`
     """)
 
     calc_col1, calc_col2 = st.columns([1, 2])
@@ -221,16 +215,12 @@ with onglets[3]:
 
     with calc_col2:
         proba = rtp_calc / multiplicateur
-        proba_pct = proba * 100
-        cote = 1 / proba if proba > 0 else float("inf")
-        un_sur = f"1 sur {cote:.0f}"
-
-        st.metric("Probabilité d'atteindre ce multiplicateur", f"{proba_pct:.4f} %")
-        st.metric("Soit environ", un_sur)
-        st.metric("Espérance mathématique par mise", f"{(rtp_calc - 1) * 100:.2f} %")
+        st.metric("Probabilité d'atteindre ce multiplicateur", f"{proba*100:.4f} %")
+        st.metric("Soit environ", f"1 sur {1/proba:.0f}")
+        st.metric("Espérance par mise", f"{(rtp_calc - 1) * 100:.2f} %")
 
     st.markdown("---")
-    st.subheader("📊 Tableau des probabilités pour différents multiplicateurs")
+    st.subheader("📊 Tableau des probabilités")
 
     multiplicateurs_table = [1.1, 1.5, 2.0, 2.04, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0]
     rows = []
@@ -239,32 +229,118 @@ with onglets[3]:
         rows.append({
             "Multiplicateur": f"{m:.2f}x",
             "Probabilité d'atteindre": f"{p*100:.4f} %",
-            "Cote (1 sur X)": f"1 sur {1/p:.1f}" if p > 0 else "∞",
+            "Cote": f"1 sur {1/p:.1f}",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    st.markdown("---")
-    st.subheader("🧮 Calculateur inversé : à partir d'un multiplicateur observé")
-    st.markdown(
-        "Si tu as vu un tour à **X** sur Bet, la probabilité qu'il **se reproduise au prochain tour** "
-        "est exactement la même que s'il n'était jamais tombé :"
-    )
-    m_observe = st.number_input("Multiplicateur observé (ex: 2.04)", 1.01, 10000.0, 2.04, 0.01, key="m_obs")
-    p_obs = rtp_calc / m_observe
-    st.info(
-        f"**Probabilité que {m_observe}x retombe au prochain tour** : {p_obs*100:.4f} % "
-        f"(soit environ 1 sur {1/p_obs:.0f} tours).\n\n"
-        f"⚠️ **Le fait qu'il soit tombé il y a 5 minutes ne change RIEN.** "
-        "Chaque tour est indépendant."
-    )
-
-# ========== ONGLET 5 : ANALYSE DE SÉRIE ==========
+# ========== ONGLET 5 : SIMULATEUR D'ATTENTE ==========
 with onglets[4]:
-    st.header("📈 Analyse de série de tours passés")
+    st.header("⏳ Simulateur d'attente")
     st.markdown("""
-    Colle une liste de tours passés (récupérés sur Bet ou ailleurs) pour voir pourquoi
-    **aucun pattern ne prédit le futur**.
+    Tu veux savoir **combien de temps il faut attendre** pour qu'un multiplicateur précis revienne ?
+    Cet outil simule des milliers de parties pour te montrer la **réalité mathématique** :
+    le temps d'attente est **totalement imprévisible**.
+
+    👉 **Entre un multiplicateur** (ex : 2.04x) et observe la distribution.
     """)
+
+    att_col1, att_col2 = st.columns([1, 2])
+    with att_col1:
+        m_cible = st.number_input("Multiplicateur recherché (x)", 1.01, 100.0, 2.04, 0.01, key="att_m")
+        nb_sims_att = st.slider("Nombre de parties simulées", 100, 5000, 1000, 100, key="att_sims")
+        max_attente = st.slider("Limite d'attente max (tours)", 10, 500, 100, 10, key="att_max")
+
+    proba_theorique = 0.97 / m_cible
+
+    with att_col2:
+        st.metric("Probabilité à chaque tour", f"{proba_theorique*100:.2f} %")
+        st.metric("Attente moyenne théorique", f"{1/proba_theorique:.1f} tours")
+
+    if st.button("⏳ Simuler les temps d'attente", type="primary"):
+        with st.spinner("Simulation en cours..."):
+            temps_attente = []
+            non_trouves = 0
+
+            for _ in range(nb_sims_att):
+                trouve = False
+                for tour in range(1, max_attente + 1):
+                    crash = crash_point(0.97)
+                    if crash >= m_cible:
+                        temps_attente.append(tour)
+                        trouve = True
+                        break
+                if not trouve:
+                    non_trouves += 1
+
+            if not temps_attente:
+                st.error("Aucune occurrence trouvée. Essaie avec un multiplicateur plus bas.")
+            else:
+                temps_attente = np.array(temps_attente)
+
+                st.markdown("### 📊 Résultats de la simulation")
+
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Attente moyenne observée", f"{temps_attente.mean():.1f} tours")
+                k2.metric("Attente médiane", f"{np.median(temps_attente):.0f} tours")
+                k3.metric("Attente minimum", f"{temps_attente.min()} tour(s)")
+                k4.metric("Attente maximum", f"{temps_attente.max()} tours")
+
+                st.markdown(f"**Sur {nb_sims_att} parties simulées :**")
+                st.write(f"- Le multiplicateur **{m_cible}x** est apparu dans les {max_attente} premiers tours : **{len(temps_attente)} fois**")
+                st.write(f"- Il n'est **pas apparu** dans les {max_attente} premiers tours : **{non_trouves} fois**")
+                st.write(f"- Attente la plus longue observée : **{temps_attente.max()} tours**")
+                st.write(f"- Attente la plus courte : **{temps_attente.min()} tour**")
+
+                # Histogramme
+                fig = px.histogram(x=temps_attente, nbins=40,
+                                   title=f"Distribution du temps d'attente pour {m_cible}x",
+                                   labels={"x": "Nombre de tours avant apparition", "y": "Fréquence"})
+                fig.add_vline(x=float(temps_attente.mean()), line_dash="dash",
+                              line_color="red", annotation_text="Moyenne")
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Explication
+                st.markdown("---")
+                st.markdown("### 🎯 Que retenir ?")
+
+                ecart_type = temps_attente.std()
+                st.warning(f"""
+                **Regarde bien l'écart entre le minimum et le maximum :**
+                - Attente la plus courte : **{temps_attente.min()} tour(s)**
+                - Attente la plus longue : **{temps_attente.max()} tours**
+                - Écart-type : **{ecart_type:.1f} tours**
+
+                Si tu cherches `{m_cible}x` après l'avoir vu, tu peux très bien le retrouver :
+                - ✅ **Dès le tour suivant** (chance)
+                - ❌ **Après {temps_attente.max()} tours ou plus** (pas de chance)
+
+                **Il n'y a AUCUN moyen de savoir à l'avance.** L'écart est gigantesque.
+                """)
+
+                st.error(
+                    "🚫 **Conclusion** : Le temps d'attente varie énormément d'une situation à l'autre. "
+                    "Aucune application ne peut prédire 'l'heure probable' d'un tour. "
+                    "Toutes celles qui le prétendent sont des arnaques."
+                )
+
+                # Comparaison avec ce qu'un "prédicteur" annoncerait
+                st.markdown("---")
+                st.markdown("### 🔍 Test : un 'prédicteur' pourrait-il deviner ?")
+                st.markdown(f"""
+                Imaginons qu'un site te dise : *"Le prochain {m_cible}x arrivera dans X tours"*.
+
+                Voici, sur {len(temps_attente)} apparitions réelles, ce qui s'est passé :
+
+                - S'il avait dit **"dans 1 tour"** → il aurait eu raison **{(temps_attente == 1).sum()/len(temps_attente)*100:.1f} % du temps**
+                - S'il avait dit **"dans {int(np.median(temps_attente))} tours"** → **{(temps_attente == np.median(temps_attente)).sum()/len(temps_attente)*100:.1f} % du temps**
+                - S'il avait dit **"dans 10 tours"** → **{(temps_attente == 10).sum()/len(temps_attente)*100:.1f} % du temps**
+
+                Aucune prédiction fixe ne fonctionne. Le "prédicteur" n'aurait raison qu'**une fois sur {int(len(temps_attente)/(temps_attente == int(np.median(temps_attente))).sum()) if (temps_attente == int(np.median(temps_attente))).sum() > 0 else 'X'}**, au mieux.
+                """)
+
+# ========== ONGLET 6 : ANALYSE DE SÉRIE ==========
+with onglets[5]:
+    st.header("📈 Analyse de série de tours passés")
 
     serie_texte = st.text_area(
         "Liste des tours (séparés par virgule, espace ou saut de ligne)",
@@ -274,104 +350,60 @@ with onglets[4]:
 
     if st.button("🔍 Analyser la série", type="primary"):
         try:
-            # Nettoyage et parsing
-            import re
             texte_nettoye = re.sub(r"[,\s\n]+", " ", serie_texte.strip())
             valeurs = [float(x) for x in texte_nettoye.split() if x]
             valeurs = [v for v in valeurs if v >= 1.0]
 
             if len(valeurs) < 5:
-                st.warning("Il faut au moins 5 valeurs pour analyser.")
+                st.warning("Il faut au moins 5 valeurs.")
             else:
                 st.success(f"✅ {len(valeurs)} tours analysés.")
 
-                # Statistiques de base
-                st.subheader("📊 Statistiques descriptives")
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Moyenne", f"{np.mean(valeurs):.2f}x")
                 c2.metric("Médiane", f"{np.median(valeurs):.2f}x")
                 c3.metric("Minimum", f"{np.min(valeurs):.2f}x")
                 c4.metric("Maximum", f"{np.max(valeurs):.2f}x")
 
-                # Histogramme
                 fig = px.histogram(x=valeurs, nbins=30,
-                                   title="Distribution des multiplicateurs observés",
-                                   labels={"x": "Multiplicateur", "y": "Fréquence"})
+                                   title="Distribution des multiplicateurs")
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Recherche d'un multiplicateur spécifique
-                st.subheader("🎯 Recherche d'un multiplicateur spécifique")
-                m_cible = st.number_input("Multiplicateur à retrouver", 1.01, 10000.0, 2.04, 0.01, key="m_serie")
-                occurrences = [i+1 for i, v in enumerate(valeurs) if abs(v - m_cible) < 0.05]
+                st.subheader("🎯 Recherche d'un multiplicateur")
+                m_cible_serie = st.number_input("Multiplicateur", 1.01, 100.0, 2.04, 0.01, key="m_serie")
+                occurrences = [i+1 for i, v in enumerate(valeurs) if abs(v - m_cible_serie) < 0.05]
 
                 if occurrences:
-                    st.info(
-                        f"Le multiplicateur **{m_cible}x** apparaît aux positions : "
-                        f"**{', '.join(map(str, occurrences))}** "
-                        f"(soit {len(occurrences)} fois sur {len(valeurs)} tours)."
-                    )
-                    # Calcul des écarts entre occurrences
+                    st.info(f"**{m_cible_serie}x** apparaît aux positions : **{', '.join(map(str, occurrences))}** ({len(occurrences)} fois sur {len(valeurs)})")
                     if len(occurrences) > 1:
                         ecarts = [occurrences[i+1] - occurrences[i] for i in range(len(occurrences)-1)]
-                        st.write(f"**Écarts entre les apparitions** : {ecarts}")
+                        st.write(f"**Écarts observés** : {ecarts}")
                         st.write(f"**Écart moyen** : {np.mean(ecarts):.1f} tours")
-                        st.warning(
-                            "⚠️ **Ces écarts ne sont PAS prédictifs.** Ils varient énormément d'une série à l'autre. "
-                            "La prochaine apparition peut survenir dans 1 tour, 100 tours, ou jamais."
-                        )
+                        st.warning("⚠️ Ces écarts varient énormément. Ils ne prédisent rien.")
                 else:
-                    st.warning(f"Le multiplicateur {m_cible}x n'apparaît pas dans cette série (tolérance 0.05).")
+                    st.warning(f"{m_cible_serie}x n'apparaît pas dans la série.")
 
-                # Test d'indépendance : le tour précédent influence-t-il le suivant ?
                 st.subheader("🔬 Test d'indépendance")
-                st.markdown("""
-                **Question** : après un tour ≥ 2x, le tour suivant a-t-il plus de chances d'être ≥ 2x ?
-                Si Aviator était prédictible, on verrait une corrélation. Regardons les faits.
-                """)
-
                 seuil = 2.0
-                suites = []
-                for i in range(len(valeurs) - 1):
-                    if valeurs[i] >= seuil:
-                        suites.append(valeurs[i+1] >= seuil)
-
+                suites = [valeurs[i+1] >= seuil for i in range(len(valeurs)-1) if valeurs[i] >= seuil]
                 if suites:
-                    proba_conditionnelle = sum(suites) / len(suites)
-                    proba_theorique = rtp_calc / seuil
-                    st.write(f"**Nombre de cas où un tour ≥ {seuil}x est suivi d'un autre tour ≥ {seuil}x** : {sum(suites)} / {len(suites)}")
-                    st.write(f"**Probabilité observée après un gros tour** : {proba_conditionnelle*100:.2f} %")
-                    st.write(f"**Probabilité théorique (indépendante)** : {proba_theorique*100:.2f} %")
-                    ecart = abs(proba_conditionnelle - proba_theorique) * 100
-                    if ecart < 10:
-                        st.success(
-                            f"✅ L'écart est de {ecart:.2f} points. **Aucune corrélation détectable.** "
-                            "Les tours sont bien indépendants."
-                        )
+                    proba_obs = sum(suites) / len(suites)
+                    proba_theo = 0.97 / seuil
+                    st.write(f"Probabilité observée après un tour ≥ {seuil}x : **{proba_obs*100:.2f} %**")
+                    st.write(f"Probabilité théorique : **{proba_theo*100:.2f} %**")
+                    if abs(proba_obs - proba_theo) < 0.15:
+                        st.success("✅ Aucune corrélation. Les tours sont indépendants.")
                     else:
-                        st.info(
-                            f"L'écart est de {ecart:.2f} points. **C'est du bruit statistique** "
-                            "(échantillon trop petit). Avec plus de données, l'écart se réduirait à 0."
-                        )
-                else:
-                    st.warning(f"Aucun tour ≥ {seuil}x trouvé dans la série pour tester la condition.")
+                        st.info("Écart = bruit statistique (échantillon trop petit).")
 
-                # Conclusion
-                st.markdown("---")
-                st.error(
-                    "🚫 **Conclusion** : Aucun pattern dans cette série ne permet de prédire le prochain tour. "
-                    "Chaque manche est indépendante et déterminée à l'avance par le serveur. "
-                    "Les 'prédicteurs' vendus en ligne exploitent cette illusion."
-                )
+                st.error("🚫 Aucun pattern ne permet de prédire le prochain tour.")
 
         except Exception as e:
-            st.error(f"Erreur de parsing : {e}")
+            st.error(f"Erreur : {e}")
 
-# ========== ONGLET 6 : PROVABLY FAIR ==========
-with onglets[5]:
+# ========== ONGLET 7 : PROVABLY FAIR ==========
+with onglets[6]:
     st.header("🔐 Vérification Provably Fair")
-    st.markdown(
-        "Aviator publie un **hash SHA-256** avant la manche, puis révèle le **seed secret** après."
-    )
 
     pf1, pf2 = st.columns(2)
     with pf1:
@@ -392,10 +424,7 @@ with onglets[5]:
         st.code(f"server_seed = {server_seed}")
 
         if hashlib.sha256(server_seed.encode()).hexdigest() == commit:
-            st.success("✅ Vérifié : le résultat était fixé à l'avance.")
+            st.success("✅ Vérifié.")
 
 st.markdown("---")
-st.caption(
-    "⚠️ Outil éducatif. Aucune prédiction possible. RTP < 100 % = perte moyenne. "
-    "Jouez responsable. France : 09 74 75 13 13."
-                      )
+st.caption("⚠️ Outil éducatif. Aucune prédiction possible.")
